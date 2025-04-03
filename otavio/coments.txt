@@ -1,2 +1,0 @@
-Para que serve a função generateUniqueId?
-

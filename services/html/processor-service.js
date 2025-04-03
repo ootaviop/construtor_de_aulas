@@ -3,6 +3,17 @@ const path = require("path");
 const archiver = require("archiver");
 
 /**
+ * Expressões regulares reutilizáveis
+ */
+const REGEX = {
+  // Detecta parágrafos vazios, com espaços, &nbsp; ou tags br
+  EMPTY_PARAGRAPH: /<p>(\s|&nbsp;|<br\s*\/?>)*<\/p>/g,
+  // Detecta formatação inline
+  NEGRITO: /\[NEGRITO\](.*?)\[\/NEGRITO\]/g,
+  ITALICO: /\[ITALICO\](.*?)\[\/ITALICO\]/g,
+};
+
+/**
  * Utilitários gerais para processamento de texto
  */
 const Utils = {
@@ -12,8 +23,8 @@ const Utils = {
   applyInlineFormatting(text) {
     if (!text) return "";
     return text
-      .replace(/\[NEGRITO\](.*?)\[\/NEGRITO\]/g, "<strong>$1</strong>")
-      .replace(/\[ITALICO\](.*?)\[\/ITALICO\]/g, "<i>$1</i>");
+      .replace(REGEX.NEGRITO, "<strong>$1</strong>")
+      .replace(REGEX.ITALICO, "<i>$1</i>");
   },
 
   /**
@@ -29,23 +40,22 @@ const Utils = {
   cleanContent(content) {
     if (!content) return "";
 
-    return (
-      content
-        // Normaliza quebras de linha
-        .replace(/\r\n/g, "\n")
-        .replace(/\r/g, "\n")
-        // Remove múltiplas quebras de linha
-        .replace(/\n{3,}/g, "\n\n")
-        // Remove espaços em branco extras
-        .replace(/[ \t]+/g, " ")
-        // Remove parágrafos HTML vazios
-        .replace(/<p>\s*<\/p>/g, "")
-        // Remove quebras de linha antes de fechamento de tags
-        .replace(/\n+(\s*<\/[^>]+>)/g, "$1")
-        // Remove quebras de linha depois de abertura de tags
-        .replace(/(<[^>]+>\s*)\n+/g, "$1")
-        .trim()
-    );
+    content = content
+      // Normaliza quebras de linha
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      // Remove múltiplas quebras de linha
+      .replace(/\n{3,}/g, "\n\n")
+      // Remove espaços em branco extras
+      .replace(/[ \t]+/g, " ")
+      // Remove parágrafos HTML vazios
+      .replace(REGEX.EMPTY_PARAGRAPH, "")
+      // Remove quebras de linha antes de fechamento de tags
+      .replace(/\n+(\s*<\/[^>]+>)/g, "$1")
+      // Remove quebras de linha depois de abertura de tags
+      .replace(/(<[^>]+>\s*)\n+/g, "$1")
+      .trim();
+    return content;
   },
 
   /**
@@ -57,12 +67,21 @@ const Utils = {
 
   /**
    * Processa parágrafos de forma inteligente
+   * @param {string} content - Conteúdo a ser processado
+   * @param {Function} formatFunc - Função opcional para formatação inline (se não fornecida, usa Utils.applyInlineFormatting)
+   * @returns {string} - Conteúdo processado com parágrafos HTML
    */
-  processParagraphs(content) {
-    if (!content) return "";
+  processParagraphs(content, formatFunc = null) {
+    if (!content || content.trim() === "") return "";
 
     // Primeiro limpa o conteúdo
     content = this.cleanContent(content);
+
+    // Remove tags [PARAGRAFO] se existirem
+    content = content.replace(/\[PARAGRAFO\](.*?)\[\/PARAGRAFO\]/gs, "$1");
+
+    // Define a função de formatação a ser usada
+    const formatter = formatFunc || this.applyInlineFormatting;
 
     // Preserva tags HTML existentes
     const htmlPlaceholders = [];
@@ -78,9 +97,11 @@ const Utils = {
         line = line.trim();
         if (!line) return "";
         if (line.startsWith("###HTML")) return line;
-        return `<p>${line}</p>`;
+
+        // Aplica formatação inline antes de envolver em tags <p>
+        return `<p>${formatter(line)}</p>`;
       })
-      .filter((line) => line)
+      .filter((line) => line) // Remove linhas vazias
       .join("\n");
 
     // Restaura tags HTML
@@ -139,7 +160,7 @@ class TemplateManager {
    * Template: <h5>texto</h5>
    */
   processTituloTopico(content) {
-    this.titulos.topico = `<h5>${this.applyInlineFormatting(content)}</h5>`;
+    this.titulos.topico = `<h5>${Utils.applyInlineFormatting(content)}</h5>`;
     return "";
   }
 
@@ -149,7 +170,7 @@ class TemplateManager {
    * Template: <h1>texto</h1>
    */
   processTituloAula(content) {
-    this.titulos.aula = `<h1>${this.applyInlineFormatting(content)}</h1>`;
+    this.titulos.aula = `<h1>${Utils.applyInlineFormatting(content)}</h1>`;
     return "";
   }
 
@@ -169,8 +190,17 @@ class TemplateManager {
    * </div>
    */
   processSecao(content) {
+    // Se o conteúdo for nulo ou vazio, retorna vazio sem processar
+    if (!content || content.trim() === "") return "";
+
     // Processa o conteúdo usando o utilitário centralizado
-    const processedContent = Utils.processParagraphs(content);
+    const processedContent = Utils.processParagraphs(
+      content,
+      Utils.applyInlineFormatting
+    );
+
+    // Se após processamento o conteúdo estiver vazio, retorna vazio
+    if (!processedContent || processedContent.trim() === "") return "";
 
     return `
       <div class="container c-aula-container curso secao1">
@@ -183,17 +213,6 @@ class TemplateManager {
           </div>
         </section>
       </div>`.trim();
-  }
-
-  /**
-   * Aplica formatação inline ao texto
-   * Tags: [NEGRITO]texto[/NEGRITO] e [ITALICO]texto[/ITALICO]
-   */
-  applyInlineFormatting(text) {
-    if (!text) return "";
-    return text
-      .replace(/\[NEGRITO\](.*?)\[\/NEGRITO\]/g, "<strong>$1</strong>")
-      .replace(/\[ITALICO\](.*?)\[\/ITALICO\]/g, "<i>$1</i>");
   }
 
   /**
@@ -269,10 +288,23 @@ class TemplateManager {
   }
 
   /**
+   * Remove parágrafos vazios do HTML final
+   */
+  cleanEmptyParagraphs(html) {
+    if (!html) return "";
+
+    // Remove parágrafos vazios
+    html = html.replace(REGEX.EMPTY_PARAGRAPH, "");
+
+    return html;
+  }
+
+  /**
    * Gera o HTML completo da página
    */
   generateFullHTML(content) {
-    return `<!DOCTYPE html>
+    // Primeiro gera o HTML base
+    let html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
@@ -316,6 +348,9 @@ class TemplateManager {
   <script src="https://recursos-moodle.caeddigital.net/projetos/2024/municipios/js/municipios.js"></script>
 </body>
 </html>`;
+
+    // Aplica a limpeza final de parágrafos vazios
+    return this.cleanEmptyParagraphs(html);
   }
 
   /**
@@ -332,7 +367,7 @@ class TemplateManager {
       .replace(
         /\[ITEM_LISTA\](.*?)\[\/ITEM_LISTA\]/gs,
         (match, innerContent) => {
-          return `<li>${this.applyInlineFormatting(innerContent.trim())}</li>`;
+          return `<li>${Utils.applyInlineFormatting(innerContent.trim())}</li>`;
         }
       )
       .trim();
@@ -355,13 +390,13 @@ class TemplateManager {
     // Extrai o texto da frente
     const frontMatch = content.match(/\[FRENTE\](.*?)\[\/FRENTE\]/s);
     if (frontMatch) {
-      frontText = this.applyInlineFormatting(frontMatch[1].trim());
+      frontText = Utils.applyInlineFormatting(frontMatch[1].trim());
     }
 
     // Extrai o texto do verso
     const backMatch = content.match(/\[VERSO\](.*?)\[\/VERSO\]/s);
     if (backMatch) {
-      backText = this.applyInlineFormatting(backMatch[1].trim());
+      backText = Utils.applyInlineFormatting(backMatch[1].trim());
     }
 
     return `
@@ -474,19 +509,14 @@ class AulaParser {
     // Processa seções
     let processedSections = "";
     content = this.processTag(content, "SECAO", (match, innerContent) => {
-      // Processamos a seção e a adicionamos diretamente à saída final
-      const processedSection = this.templateManager.processSecao(
-        this.processParágrafos(innerContent)
-      );
+      const processedSection = this.templateManager.processSecao(innerContent);
       processedSections += processedSection;
-      return ""; // Removemos a seção do texto original
+      return "";
     });
 
     // Processa parágrafos restantes fora de seções
     if (content.trim()) {
-      processedSections += this.templateManager.processSecao(
-        this.processParágrafos(content)
-      );
+      processedSections += this.templateManager.processSecao(content);
     }
 
     // Gera o HTML final incluindo as seções processadas
@@ -502,48 +532,62 @@ class AulaParser {
    * @returns {string} - Conteúdo processado
    */
   processTag(content, tagName, processor, hasAttributes = false) {
-    if (!content) return "";
+    // Se o conteúdo for nulo ou vazio, retorna vazio sem processar
+    if (!content || content.trim() === "") return "";
 
-    const pattern = hasAttributes
-      ? `\\[${tagName}\\s+(.*?)\\](.*?)\\[\\/${tagName}\\]`
-      : `\\[${tagName}\\](.*?)\\[\\/${tagName}\\]`;
+    // Verifica se o nome da tag contém apenas caracteres válidos
+    if (!tagName || typeof tagName !== "string") {
+      console.error("processTag: Nome da tag inválido:", tagName);
+      return content; // Retorna o conteúdo original sem processamento
+    }
 
-    // Usamos 'gs' para que a regex funcione com múltiplas linhas e capture todas as ocorrências
-    const regex = new RegExp(pattern, "gs");
+    // Validação de nome de tag (apenas letras, números e underscores são permitidos)
+    const validTagNamePattern = /^[a-zA-Z0-9_]+$/;
+    if (!validTagNamePattern.test(tagName)) {
+      console.error(
+        "processTag: Nome da tag contém caracteres inválidos:",
+        tagName
+      );
+      return content; // Retorna o conteúdo original sem processamento
+    }
 
-    return content.replace(regex, (match, p1, p2) => {
-      if (hasAttributes) {
-        const attributes = p1;
-        const innerContent = p2;
-        return processor(match, innerContent.trim(), attributes);
-      } else {
-        const innerContent = p1;
-        return processor(match, innerContent.trim());
-      }
-    });
-  }
+    try {
+      // Define o padrão de acordo com o tipo da tag (com ou sem atributos)
+      const pattern = hasAttributes
+        ? `\\[${tagName}\\s+(.*?)\\](.*?)\\[\\/${tagName}\\]`
+        : `\\[${tagName}\\](.*?)\\[\\/${tagName}\\]`;
 
-  /**
-   * Processa o texto, transformando parágrafos e aplicando formatação inline
-   */
-  processParágrafos(content) {
-    if (!content) return "";
+      const regex = new RegExp(pattern, "gs");
 
-    // Remove tags [PARAGRAFO] se existirem
-    content = content.replace(/\[PARAGRAFO\](.*?)\[\/PARAGRAFO\]/gs, "$1");
+      // Processa a tag de acordo com o padrão
+      return content.replace(regex, (match, p1, p2) => {
+        try {
+          // Se o conteúdo dentro da tag for vazio, retorna vazio
+          const innerContent = hasAttributes ? p2 : p1;
+          if (!innerContent || innerContent.trim() === "") return "";
 
-    // Aplica formatação inline
-    content = this.templateManager.applyInlineFormatting(content);
-
-    // Divide o texto em parágrafos, filtra linhas vazias e espaços em branco
-    const paragraphs = content
-      .split(/\r?\n/)
-      .map((p) => p.trim())
-      .filter((p) => p !== "" && p !== "<p></p>") // Remove linhas vazias e parágrafos vazios
-      .map((p) => `<p>${p}</p>`)
-      .join("\n");
-
-    return paragraphs;
+          // Processa a tag com base em seus atributos
+          if (hasAttributes) {
+            const attributes = p1;
+            return processor(match, innerContent.trim(), attributes);
+          } else {
+            return processor(match, innerContent.trim());
+          }
+        } catch (innerError) {
+          console.error(
+            `Erro ao processar conteúdo da tag [${tagName}]:`,
+            innerError
+          );
+          return match; // Em caso de erro, mantém o conteúdo original da tag
+        }
+      });
+    } catch (error) {
+      console.error(
+        `Erro ao criar ou executar regex para a tag [${tagName}]:`,
+        error
+      );
+      return content; // Retorna o conteúdo original em caso de erro na regex
+    }
   }
 }
 
@@ -567,11 +611,13 @@ function processarAula(inputData) {
     // Separa o input em tópicos se contiver a tag [TOPICO]
     let topicos = [];
     if (inputData.includes("[TOPICO]")) {
+      // Primeiro separamos por tag de abertura, depois removemos as tags de fechamento
       topicos = inputData
         .split(/\[TOPICO\]/g)
         .filter((t) => t.trim() !== "")
         .map((t) => t.replace(/\[\/TOPICO\]/g, "").trim());
     } else {
+      // Se não tiver a tag [TOPICO], considera todo o conteúdo como um único tópico
       topicos.push(inputData);
     }
 
@@ -590,6 +636,7 @@ function processarAula(inputData) {
 
     // Processar cada tópico e extrair seus títulos
     topicos.forEach((topico, index) => {
+      // Ignora tópicos vazios, apenas gerando um título padrão
       if (!topico) {
         htmls.push("");
         titles.push(`Tópico ${index + 1}`);
@@ -607,8 +654,8 @@ function processarAula(inputData) {
 
       // Remover formatações inline do título para uso como nome de arquivo
       const cleanTitle = title
-        .replace(/\[NEGRITO\](.*?)\[\/NEGRITO\]/g, "$1")
-        .replace(/\[ITALICO\](.*?)\[\/ITALICO\]/g, "$1");
+        .replace(REGEX.NEGRITO, "$1")
+        .replace(REGEX.ITALICO, "$1");
 
       // Adicionar o título à lista
       titles.push(cleanTitle);
@@ -617,7 +664,15 @@ function processarAula(inputData) {
       htmls.push(parser.parse(topico));
     });
 
-    return { htmls, titles };
+    // Limpa parágrafos vazios em todos os HTMLs gerados
+    const cleanedHtmls = htmls.map((html) => {
+      if (!html) return "";
+
+      // Remove parágrafos vazios
+      return html.replace(REGEX.EMPTY_PARAGRAPH, "");
+    });
+
+    return { htmls: cleanedHtmls, titles };
   } catch (error) {
     console.error("Erro ao processar aula:", error);
     return { error: error.message, htmls: [], titles: [] };

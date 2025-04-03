@@ -1,0 +1,17 @@
+Certo!
+
+Eu vou te explicar o porquê eu quero isso.
+
+Como você sabe, eu trabalho em uma empresa que vende cursos EAD para serem feitos pelos alunos via plataforma Moodle.
+
+As aulas são escritas pela equipe de conteúdo usando o Google Docs, e eles enviam para a minha equipe esse documento, solicitando a construção dessa aula em HTML, CSS e JS, para posteriormente subir esse conteúdo no Moodle.
+
+Estão anexados exemplos tanto do Google Docx quanto da aula já construída no Moodle.
+
+Perceba que o documento .docx possui tags envolvendo parte do conteúdo. Atualmente, a existência dessas tags permite que meu script(que também está anexado, apenas para sua compreensão) parta do texto extraído do docx para montar o html dinamicamente, de acordo com os templates html de cada componente.
+
+Minha ideia é treinar um modelo de linguagem para que ele consiga identificar essas tags no conteúdo do documento extraído e posteriormente formatar o html da mesma forma que o arquivo de script faz hoje.
+
+Você acha que isso é possível?
+
+Vou anexar aqui o repositório no GitHub do meu projeto, apenas para que você tenha uma compreensão maior do que eu estou fazendo.
